@@ -7,6 +7,7 @@ import argparse
 from . import __version__
 from .add_command import register_add_command
 from .init_command import register_init_command
+from .sync_command import register_sync_command
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -24,6 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     register_add_command(subparsers)
     register_init_command(subparsers)
+    register_sync_command(subparsers)
 
     return parser
 

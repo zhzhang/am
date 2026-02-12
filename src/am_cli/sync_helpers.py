@@ -18,6 +18,8 @@ ROOT_AGENTS_PREAMBLE = (
     "# am start <module_name>.\n"
     "Any files referenced by these modules will be located relative to the "
     "AGENTS.md file at .am/<module_name>.\n"
+    "For example, if a file called `foo.md` is referenced by the `bar` module, "
+    "it will appear at `.am/bar/foo.md`."
 )
 
 

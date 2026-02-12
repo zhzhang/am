@@ -44,10 +44,10 @@ To target the `AGENTS.md` at specific path in your project:
 agmd add owner/repo --path src
 ```
 
-Some `AGENTS.md` such as [Supabase's](https://github.com/supabase/agent-skills/blob/main/skills/supabase-postgres-best-practices/AGENTS.md) refer to dependency files that add additional information.
+Some `AGENTS.md` such as [Supabase's](https://github.com/supabase/agent-skills/blob/main/skills/supabase-postgres-best-practices/AGENTS.md) refer to dependency files that add additional information. Use the `--module` flag to pull down the additional references:
 
 ```bash
-agmd add owner/repo/tree/main/skills/my-skill --module
+agmd add supabase/agent-skills/skills/supabase-postgres-best-practices --module
 ```
 
 This downloads all files from that path into `.agmd/<module-name>/` so they can be referenced from the materialized `AGENTS.md`.
@@ -63,5 +63,26 @@ agmd sync
 `agmd` fetches the latest remote content, merges it with any `AGENTS.local.md`, and writes the result to `AGENTS.md`.
 
 
-## How it works
+## Why?
 
+Jude Gao's (Vercel) [recent post](https://vercel.com/blog/agents-md-outperforms-skills-in-our-agent-evals) talks about how `AGENTS.md` files outperforms Skills by making sure that relevant context is always visible to the agent, rather than making the agent decide on where to look with a tool call.
+
+In order to preserve the benefits of context visibility, most rules should live directly within `AGENTS.md` files.
+Most current workflows to do this involve copypasting or concatenating directly into your project `AGENTS.md` files, and committing these changes.
+This means that to incorporate new changes, i.e. when package interfaces change, developers have to manually edit these files, remove old rules, and update to new ones (or prompt an AI to do it, and hope that they get it right).
+
+`agmd` solves this by materializing `AGENTS.md` files on the fly from remote files and local `AGENTS.local.md` files, which contain the project specific rules that you write for yourself.
+A preamble is added at the top of the materialized root `AGENTS.md` telling agents how to find referenced files if an exernal provide has a module structure with a directory of additional referenced files.
+
+```
+This project's AGENTS.md files are managed by agmd, which may pull in AGENTS.md files from other sources.
+These external AGENTS.md files will be delimited by:
+# agmd start <module_name>.
+Any files referenced by these modules will be located relative to the AGENTS.md file at .agmd/<module_name>.
+
+# agmd start supabase/agent-skills/skills/supabase-postgres-best-practices.
+...
+
+# agmd local
+My project's local rules.
+```

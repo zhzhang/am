@@ -9,6 +9,15 @@ from urllib.request import Request, urlopen
 
 import yaml
 
+ROOT_AGENTS_PREAMBLE = (
+    "This project's AGENTS.md files are managed by agmd, which may pull in "
+    "AGENTS.md files from other sources.\n"
+    "These external AGENTS.md files will be delimited by:\n"
+    "# agmd start <module_name>.\n"
+    "Any files referenced by these modules will be located relative to the "
+    "AGENTS.md file at .agmd/<module_name>.\n"
+)
+
 
 class MdEntry(TypedDict):
     name: str
@@ -137,12 +146,12 @@ def compose_agents_document(mds: list[MdEntry], local_agents_path: Path) -> str:
         github_path = md_entry["name"]
         remote_content = _fetch_remote_agents(github_path).strip()
         if remote_content:
-            sections.append(remote_content)
+            sections.append(f"# agmd start {github_path}.\n\n{remote_content}")
 
     if local_agents_path.exists():
         local_content = local_agents_path.read_text(encoding="utf-8").strip()
         if local_content:
-            sections.append(local_content)
+            sections.append(f"# agmd local\n\n{local_content}")
 
     if not sections:
         return ""
@@ -168,6 +177,11 @@ def refresh_agents_files(
             mds=mds,
             local_agents_path=target_dir / "AGENTS.local.md",
         )
+        if target_dir == project_root.resolve():
+            if agents_content:
+                agents_content = f"{ROOT_AGENTS_PREAMBLE}\n{agents_content}"
+            else:
+                agents_content = ROOT_AGENTS_PREAMBLE
         agents_path = target_dir / "AGENTS.md"
         agents_path.write_text(agents_content, encoding="utf-8")
         refreshed_paths.append(agents_path)

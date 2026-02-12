@@ -33,9 +33,13 @@ AGMD_BIN_DIR="$HOME/.local/bin" \
 
 ```bash
 agmd --help
-agmd greet
-agmd greet Jordan
+agmd init  # creates agmd.yml
+agmd init --map ".=owner/repo" --map "src=owner/repo/tree/main/src"
 ```
+
+`agmd init` also ensures `.gitignore` ignores `AGENTS.md` and renames any
+existing `AGENTS.md` files in the project to `AGENTS.local.md`.
+If `agmd.yml` already exists, it is left unchanged.
 
 ## Development
 
@@ -46,5 +50,5 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 pip install -e .
-agmd greet dev
+agmd init --map ".=owner/repo"
 ```

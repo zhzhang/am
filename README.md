@@ -35,11 +35,27 @@ AGMD_BIN_DIR="$HOME/.local/bin" \
 agmd --help
 agmd init  # creates agmd.yml
 agmd init --map ".=owner/repo" --map "src=owner/repo/tree/main/src"
+agmd add owner/repo --path src
+agmd sync
 ```
 
-`agmd init` also ensures `.gitignore` ignores `AGENTS.md` and renames any
-existing `AGENTS.md` files in the project to `AGENTS.local.md`.
+`agmd init` also ensures `.gitignore` ignores `AGENTS.md` and `**/.agmd/`,
+then renames any existing `AGENTS.md` files in the project to
+`AGENTS.local.md`.
 If `agmd.yml` already exists, it is left unchanged.
+
+`agmd.yml` uses a list format:
+
+```yaml
+- path: "."
+  mds:
+    - name: "owner/repo"
+      module: false
+- path: "src"
+  mds:
+    - name: "owner/repo/tree/main/src"
+      module: true
+```
 
 ## Development
 

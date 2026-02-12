@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TypedDict
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 import yaml
+
+
+class MdEntry(TypedDict):
+    name: str
+    module: bool
 
 
 def _parse_name(name_value: object, config_path: Path) -> str:
@@ -19,7 +25,20 @@ def _parse_name(name_value: object, config_path: Path) -> str:
     return name.strip()
 
 
-def load_mappings(config_path: Path) -> dict[str, list[str]]:
+def _parse_module(
+    module_value: object, config_path: Path, path_value: str, name_value: str
+) -> bool:
+    if module_value is None:
+        return False
+    if isinstance(module_value, bool):
+        return module_value
+    raise ValueError(
+        f"Invalid `module` value for path {path_value!r} and name {name_value!r} "
+        f"in {config_path}: {module_value!r}. Expected a boolean."
+    )
+
+
+def load_mappings(config_path: Path) -> dict[str, list[MdEntry]]:
     if not config_path.exists():
         raise ValueError(f"Missing config file: {config_path}. Run `agmd init` first.")
 
@@ -31,7 +50,7 @@ def load_mappings(config_path: Path) -> dict[str, list[str]]:
             f"Invalid config in {config_path}. Expected a top-level YAML list."
         )
 
-    mappings: dict[str, list[str]] = {}
+    mappings: dict[str, list[MdEntry]] = {}
 
     for entry in raw_data:
         if not isinstance(entry, dict):
@@ -47,31 +66,33 @@ def load_mappings(config_path: Path) -> dict[str, list[str]]:
                 "Expected a non-empty string."
             )
 
-        names_value = entry.get("names", [])
-        if not isinstance(names_value, list):
+        mds_value = entry.get("mds", [])
+        if not isinstance(mds_value, list):
             raise ValueError(
-                f"Invalid names value for path {path_value!r} in {config_path}: "
-                f"{names_value!r}. Expected a list."
+                f"Invalid mds value for path {path_value!r} in {config_path}: "
+                f"{mds_value!r}. Expected a list."
             )
 
-        parsed_names: list[str] = []
-        for name_entry in names_value:
-            if not isinstance(name_entry, dict):
+        parsed_mds: list[MdEntry] = []
+        for md_entry in mds_value:
+            if not isinstance(md_entry, dict):
                 raise ValueError(
-                    f"Invalid name entry for path {path_value!r} in {config_path}: "
-                    f"{name_entry!r}. Expected a mapping with `name`."
+                    f"Invalid md entry for path {path_value!r} in {config_path}: "
+                    f"{md_entry!r}. Expected a mapping with `name` and `module`."
                 )
-            parsed_names.append(_parse_name(name_entry.get("name"), config_path))
+            name = _parse_name(md_entry.get("name"), config_path)
+            module = _parse_module(md_entry.get("module"), config_path, path_value, name)
+            parsed_mds.append({"name": name, "module": module})
 
-        mappings[path_value] = parsed_names
+        mappings[path_value] = parsed_mds
 
     return mappings
 
 
-def write_mappings(config_path: Path, mappings: dict[str, list[str]]) -> None:
+def write_mappings(config_path: Path, mappings: dict[str, list[MdEntry]]) -> None:
     yaml_payload = [
-        {"path": path, "names": [{"name": name} for name in names]}
-        for path, names in mappings.items()
+        {"path": path, "mds": mds}
+        for path, mds in mappings.items()
     ]
     rendered = yaml.safe_dump(
         yaml_payload,
@@ -110,9 +131,10 @@ def _fetch_remote_agents(github_path: str) -> str:
         ) from exc
 
 
-def compose_agents_document(names: list[str], local_agents_path: Path) -> str:
+def compose_agents_document(mds: list[MdEntry], local_agents_path: Path) -> str:
     sections: list[str] = []
-    for github_path in names:
+    for md_entry in mds:
+        github_path = md_entry["name"]
         remote_content = _fetch_remote_agents(github_path).strip()
         if remote_content:
             sections.append(remote_content)
@@ -127,10 +149,12 @@ def compose_agents_document(names: list[str], local_agents_path: Path) -> str:
     return "\n\n".join(sections) + "\n"
 
 
-def refresh_agents_files(project_root: Path, mappings: dict[str, list[str]]) -> list[Path]:
+def refresh_agents_files(
+    project_root: Path, mappings: dict[str, list[MdEntry]]
+) -> list[Path]:
     refreshed_paths: list[Path] = []
 
-    for path_key, names in mappings.items():
+    for path_key, mds in mappings.items():
         target_dir = (project_root / path_key).resolve()
         try:
             target_dir.relative_to(project_root.resolve())
@@ -141,7 +165,7 @@ def refresh_agents_files(project_root: Path, mappings: dict[str, list[str]]) -> 
 
         target_dir.mkdir(parents=True, exist_ok=True)
         agents_content = compose_agents_document(
-            names=names,
+            mds=mds,
             local_agents_path=target_dir / "AGENTS.local.md",
         )
         agents_path = target_dir / "AGENTS.md"

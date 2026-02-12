@@ -12,7 +12,9 @@ license = { text = "MIT" }
 authors = [
   { name = "AGMD Maintainers" }
 ]
-dependencies = []
+dependencies = [
+  "PyYAML",
+]
 
 [project.scripts]
 agmd = "agmd_cli.cli:main"

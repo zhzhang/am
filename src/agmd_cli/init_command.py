@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from .sync_helpers import write_mappings
+from .sync_helpers import MdEntry, write_mappings
 
 
 def _find_project_root(start: Path) -> Path:
@@ -15,8 +15,10 @@ def _find_project_root(start: Path) -> Path:
     return start
 
 
-def _parse_mapping_entries(entries: list[str], project_root: Path) -> dict[str, list[str]]:
-    mappings: dict[str, list[str]] = {}
+def _parse_mapping_entries(
+    entries: list[str], project_root: Path
+) -> dict[str, list[MdEntry]]:
+    mappings: dict[str, list[MdEntry]] = {}
 
     for entry in entries:
         if "=" not in entry:
@@ -46,9 +48,9 @@ def _parse_mapping_entries(entries: list[str], project_root: Path) -> dict[str, 
             ) from exc
 
         key = "." if str(relative_path) == "." else relative_path.as_posix()
-        mapping_names = mappings.setdefault(key, [])
-        if slug not in mapping_names:
-            mapping_names.append(slug)
+        mapping_mds = mappings.setdefault(key, [])
+        if not any(md_entry["name"] == slug for md_entry in mapping_mds):
+            mapping_mds.append({"name": slug, "module": False})
 
     return mappings
 
@@ -111,7 +113,11 @@ def run_init_command(args: argparse.Namespace) -> int:
         write_mappings(config_path, mappings)
         print(f"Created {config_path}")
     _ensure_gitignore_rule(project_root, "AGENTS.md")
+    _ensure_gitignore_rule(project_root, "**/.agmd/")
     moved_count = _move_agents_files(project_root)
-    print(f"Updated {(project_root / '.gitignore')} to ignore AGENTS.md")
+    print(
+        f"Updated {(project_root / '.gitignore')} to ignore AGENTS.md "
+        "and recursively ignore '.agmd' dirs"
+    )
     print(f"Renamed {moved_count} AGENTS.md file(s) to AGENTS.local.md")
     return 0

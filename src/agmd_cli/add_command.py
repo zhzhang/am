@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 
-from .sync_helpers import load_mappings, refresh_agents_file
+from .sync_helpers import load_mappings, refresh_agents_files, write_mappings
 
 
 def _find_project_root(start: Path) -> Path:
@@ -31,21 +30,10 @@ def _normalize_local_path(raw_path: str, project_root: Path) -> str:
     return "." if str(relative_path) == "." else relative_path.as_posix()
 
 
-def _render_config_yaml(mappings: dict[str, str]) -> str:
-    if not mappings:
-        return "mappings: {}\n"
-
-    lines = ["mappings:"]
-    for path, slug in mappings.items():
-        # JSON-quoted strings are valid YAML scalars and handle escaping safely.
-        lines.append(f"  {json.dumps(path)}: {json.dumps(slug)}")
-    return "\n".join(lines) + "\n"
-
-
 def register_add_command(subparsers: argparse._SubParsersAction) -> None:
     add_parser = subparsers.add_parser(
         "add",
-        help="Add a GitHub path mapping and refresh AGENTS.md.",
+        help="Add a GitHub slug and refresh AGENTS.md files.",
     )
     add_parser.add_argument(
         "github_path",
@@ -55,7 +43,7 @@ def register_add_command(subparsers: argparse._SubParsersAction) -> None:
         "--path",
         default=".",
         metavar="PATH",
-        help="Local path key to map in agmd.yml (defaults to project root).",
+        help="Project path where AGENTS.md should be materialized (default: root).",
     )
     add_parser.set_defaults(handler=run_add_command)
 
@@ -67,15 +55,17 @@ def run_add_command(args: argparse.Namespace) -> int:
     try:
         mappings = load_mappings(config_path)
         local_path_key = _normalize_local_path(args.path, project_root)
-        mappings[local_path_key] = args.github_path.strip()
-        config_path.write_text(_render_config_yaml(mappings), encoding="utf-8")
-        refresh_agents_file(project_root=project_root, mappings=mappings)
+        path_names = mappings.setdefault(local_path_key, [])
+        github_slug = args.github_path.strip()
+        if github_slug not in path_names:
+            path_names.append(github_slug)
+        write_mappings(config_path, mappings)
+        refreshed_paths = refresh_agents_files(project_root=project_root, mappings=mappings)
     except ValueError as exc:
         print(str(exc))
         return 1
 
-    print(
-        f"Updated {config_path} with mapping {local_path_key!r} -> {args.github_path!r}"
-    )
-    print(f"Refreshed {(project_root / 'AGENTS.md')}")
+    print(f"Updated {config_path} with name {github_slug!r} at path {local_path_key!r}")
+    for refreshed in refreshed_paths:
+        print(f"Refreshed {refreshed}")
     return 0

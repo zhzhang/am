@@ -2,47 +2,84 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+import yaml
 
-def load_mappings(config_path: Path) -> dict[str, str]:
+
+def _parse_name(name_value: object, config_path: Path) -> str:
+    name = name_value
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError(
+            f"Invalid `name` value in {config_path}: {name_value!r}. "
+            "Expected a non-empty string."
+        )
+    return name.strip()
+
+
+def load_mappings(config_path: Path) -> dict[str, list[str]]:
     if not config_path.exists():
         raise ValueError(f"Missing config file: {config_path}. Run `agmd init` first.")
 
-    lines = config_path.read_text(encoding="utf-8").splitlines()
-    non_empty_lines = [line for line in lines if line.strip()]
-    if not non_empty_lines:
+    raw_data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    if raw_data is None:
         return {}
-
-    if len(non_empty_lines) == 1 and non_empty_lines[0].strip() == "mappings: {}":
-        return {}
-
-    if non_empty_lines[0].strip() != "mappings:":
+    if not isinstance(raw_data, list):
         raise ValueError(
-            f"Invalid config in {config_path}. Expected top-level `mappings:` key."
+            f"Invalid config in {config_path}. Expected a top-level YAML list."
         )
 
-    mappings: dict[str, str] = {}
-    for line in non_empty_lines[1:]:
-        stripped = line.strip()
-        if not stripped:
-            continue
+    mappings: dict[str, list[str]] = {}
 
-        if ":" not in stripped:
+    for entry in raw_data:
+        if not isinstance(entry, dict):
             raise ValueError(
-                f"Invalid mapping line in {config_path}: {line!r}. "
-                'Expected format: "<path>": "<github-path>"'
+                f"Invalid config entry in {config_path}: {entry!r}. "
+                "Expected each list item to be a mapping."
             )
 
-        key_literal, value_literal = stripped.split(":", 1)
-        key = json.loads(key_literal.strip())
-        value = json.loads(value_literal.strip())
-        mappings[key] = value
+        path_value = entry.get("path")
+        if not isinstance(path_value, str) or not path_value:
+            raise ValueError(
+                f"Invalid path value in {config_path}: {path_value!r}. "
+                "Expected a non-empty string."
+            )
+
+        names_value = entry.get("names", [])
+        if not isinstance(names_value, list):
+            raise ValueError(
+                f"Invalid names value for path {path_value!r} in {config_path}: "
+                f"{names_value!r}. Expected a list."
+            )
+
+        parsed_names: list[str] = []
+        for name_entry in names_value:
+            if not isinstance(name_entry, dict):
+                raise ValueError(
+                    f"Invalid name entry for path {path_value!r} in {config_path}: "
+                    f"{name_entry!r}. Expected a mapping with `name`."
+                )
+            parsed_names.append(_parse_name(name_entry.get("name"), config_path))
+
+        mappings[path_value] = parsed_names
 
     return mappings
+
+
+def write_mappings(config_path: Path, mappings: dict[str, list[str]]) -> None:
+    yaml_payload = [
+        {"path": path, "names": [{"name": name} for name in names]}
+        for path, names in mappings.items()
+    ]
+    rendered = yaml.safe_dump(
+        yaml_payload,
+        sort_keys=False,
+        default_flow_style=False,
+        allow_unicode=False,
+    )
+    config_path.write_text(rendered, encoding="utf-8")
 
 
 def _github_agents_url(github_path: str) -> str:
@@ -73,9 +110,9 @@ def _fetch_remote_agents(github_path: str) -> str:
         ) from exc
 
 
-def compose_agents_document(mappings: dict[str, str], local_agents_path: Path) -> str:
+def compose_agents_document(names: list[str], local_agents_path: Path) -> str:
     sections: list[str] = []
-    for github_path in mappings.values():
+    for github_path in names:
         remote_content = _fetch_remote_agents(github_path).strip()
         if remote_content:
             sections.append(remote_content)
@@ -90,11 +127,25 @@ def compose_agents_document(mappings: dict[str, str], local_agents_path: Path) -
     return "\n\n".join(sections) + "\n"
 
 
-def refresh_agents_file(project_root: Path, mappings: dict[str, str]) -> Path:
-    agents_content = compose_agents_document(
-        mappings=mappings,
-        local_agents_path=project_root / "AGENTS.local.md",
-    )
-    agents_path = project_root / "AGENTS.md"
-    agents_path.write_text(agents_content, encoding="utf-8")
-    return agents_path
+def refresh_agents_files(project_root: Path, mappings: dict[str, list[str]]) -> list[Path]:
+    refreshed_paths: list[Path] = []
+
+    for path_key, names in mappings.items():
+        target_dir = (project_root / path_key).resolve()
+        try:
+            target_dir.relative_to(project_root.resolve())
+        except ValueError as exc:
+            raise ValueError(
+                f"Configured path '{path_key}' must be within project root '{project_root}'."
+            ) from exc
+
+        target_dir.mkdir(parents=True, exist_ok=True)
+        agents_content = compose_agents_document(
+            names=names,
+            local_agents_path=target_dir / "AGENTS.local.md",
+        )
+        agents_path = target_dir / "AGENTS.md"
+        agents_path.write_text(agents_content, encoding="utf-8")
+        refreshed_paths.append(agents_path)
+
+    return refreshed_paths

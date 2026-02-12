@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
+
+from .sync_helpers import write_mappings
 
 
 def _find_project_root(start: Path) -> Path:
@@ -14,8 +15,8 @@ def _find_project_root(start: Path) -> Path:
     return start
 
 
-def _parse_mapping_entries(entries: list[str], project_root: Path) -> dict[str, str]:
-    mappings: dict[str, str] = {}
+def _parse_mapping_entries(entries: list[str], project_root: Path) -> dict[str, list[str]]:
+    mappings: dict[str, list[str]] = {}
 
     for entry in entries:
         if "=" not in entry:
@@ -45,20 +46,11 @@ def _parse_mapping_entries(entries: list[str], project_root: Path) -> dict[str, 
             ) from exc
 
         key = "." if str(relative_path) == "." else relative_path.as_posix()
-        mappings[key] = slug
+        mapping_names = mappings.setdefault(key, [])
+        if slug not in mapping_names:
+            mapping_names.append(slug)
 
     return mappings
-
-
-def _render_config_yaml(mappings: dict[str, str]) -> str:
-    if not mappings:
-        return "mappings: {}\n"
-
-    lines = ["mappings:"]
-    for path, slug in mappings.items():
-        # JSON-quoted strings are valid YAML scalars and handle escaping safely.
-        lines.append(f"  {json.dumps(path)}: {json.dumps(slug)}")
-    return "\n".join(lines) + "\n"
 
 
 def _ensure_gitignore_rule(project_root: Path, rule: str) -> None:
@@ -99,7 +91,7 @@ def register_init_command(subparsers: argparse._SubParsersAction) -> None:
         action="append",
         default=[],
         metavar="PATH=GITHUB_URL_SLUG",
-        help="Add a path to GitHub URL slug mapping. Repeat for multiple mappings.",
+        help="Add an initial path and GitHub slug entry. Repeat for multiple entries.",
     )
     init_parser.set_defaults(handler=run_init_command)
 
@@ -116,13 +108,7 @@ def run_init_command(args: argparse.Namespace) -> int:
             print(str(exc))
             return 1
 
-        config = {
-            "mappings": mappings,
-        }
-        config_path.write_text(
-            _render_config_yaml(config["mappings"]),
-            encoding="utf-8",
-        )
+        write_mappings(config_path, mappings)
         print(f"Created {config_path}")
     _ensure_gitignore_rule(project_root, "AGENTS.md")
     moved_count = _move_agents_files(project_root)
